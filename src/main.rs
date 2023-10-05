@@ -35,7 +35,7 @@ struct AppState {
     board: [[Option<(Color, Piece)>; 8]; 8],
     // Imported game representation.
     game: Game,
-    move_start: Option<String>,
+    move_start: Option<(u8, u8)>,
     possible_moves: Option<Vec<String>>
 }
 
@@ -51,9 +51,9 @@ impl AppState {
                 Some((Color, Piece::Bishop)),
                 Some((Color, Piece::Queen)),
                 Some((Color, Piece::King)),
-                Some((Color, Piece::Rook)),
-                Some((Color, Piece::Knight)),
                 Some((Color, Piece::Bishop)),
+                Some((Color, Piece::Knight)),
+                Some((Color, Piece::Rook)),
             ]
         };
         let pawn_rank = |Color| [Some((Color, Piece::Pawn)); 8];
@@ -61,6 +61,7 @@ impl AppState {
 
         let state = AppState {
             sprites: AppState::load_sprites(ctx),
+            game: Game::new(),
             board: [
                 royal_rank(Color::Black),
                 pawn_rank(Color::Black),
@@ -71,7 +72,6 @@ impl AppState {
                 pawn_rank(Color::White),
                 royal_rank(Color::White),
             ],
-            game: Game::new(),
             move_start: None,
             possible_moves: None,
         };
@@ -154,7 +154,7 @@ impl event::EventHandler<GameError> for AppState {
                         GRID_CELL_SIZE.0 as i32,
                         GRID_CELL_SIZE.1 as i32,
                     ),
-                    match col % 2 {
+                    match (col + 1) % 2 {
                         0 => {
                             if row % 2 == 0 {
                                 WHITE
@@ -231,18 +231,22 @@ impl event::EventHandler<GameError> for AppState {
         if self.move_start == None {
             self.possible_moves = self.game.get_possible_moves(&string_coordinates);
             if self.possible_moves != None {
-                self.move_start = Some(string_coordinates.clone());
+                self.move_start = Some((cell_x, cell_y));
             }
 
         }
         else {
             // Reset move_start, possible_moves and return if the move is illegal
             if self.possible_moves.as_ref().unwrap().contains(&string_coordinates) {
-                self.game.make_move(&self.move_start.as_ref().unwrap(), &string_coordinates);
+                let start = self.move_start.as_ref().unwrap();
+                if self.game.make_move(&numerical_to_chess(start.0, start.1), &string_coordinates) != None {
+                    self.board[cell_y as usize][cell_x as usize] = self.board[start.1 as usize][start.0 as usize].clone();
+                    self.board[start.1 as usize][start.0 as usize] = None;
+                }
             }
             self.move_start = None;
             self.possible_moves = None;
-            println!("{}", self.game)
+            println!("{:?}", self.board)
         }
     }
 }
