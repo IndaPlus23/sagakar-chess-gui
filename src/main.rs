@@ -27,6 +27,8 @@ const BLACK: graphics::Color =
     graphics::Color::new(228.0 / 255.0, 196.0 / 255.0, 108.0 / 255.0, 1.0);
 const WHITE: graphics::Color =
     graphics::Color::new(188.0 / 255.0, 140.0 / 255.0, 76.0 / 255.0, 1.0);
+const GREEN: graphics::Color = 
+    graphics::Color::new(85.0 / 255.0, 205.0 / 255.0 , 70.0 / 255.0, 0.5);
 
 /// GUI logic and event implementation structure.
 struct AppState {
@@ -42,40 +44,14 @@ struct AppState {
 impl AppState {
     /// Initialise new application, i.e. initialise new game and load resources.
     fn new(ctx: &mut Context) -> GameResult<AppState> {
-        // A cool way to instantiate the board
-        // You can safely delete this if the chess-library already does this
-        let royal_rank = |Color| {
-            [
-                Some((Color, Piece::Rook)),
-                Some((Color, Piece::Knight)),
-                Some((Color, Piece::Bishop)),
-                Some((Color, Piece::Queen)),
-                Some((Color, Piece::King)),
-                Some((Color, Piece::Bishop)),
-                Some((Color, Piece::Knight)),
-                Some((Color, Piece::Rook)),
-            ]
-        };
-        let pawn_rank = |Color| [Some((Color, Piece::Pawn)); 8];
-        let empty_rank = || [None; 8];
-
-        let state = AppState {
+        let mut state = AppState {
             sprites: AppState::load_sprites(ctx),
             game: Game::new(),
-            board: [
-                royal_rank(Color::Black),
-                pawn_rank(Color::Black),
-                empty_rank(),
-                empty_rank(),
-                empty_rank(),
-                empty_rank(),
-                pawn_rank(Color::White),
-                royal_rank(Color::White),
-            ],
+            board: [[None, None, None, None, None, None, None, None]; 8],
             move_start: None,
             possible_moves: None,
         };
-
+        state.board_from_game();
         Ok(state)
     }
     #[rustfmt::skip] // Skips formatting on this function (not recommended)
@@ -101,6 +77,20 @@ impl AppState {
              })
              .collect::<HashMap<(Color, Piece), graphics::Image>>()
      }
+
+    fn board_from_game(&mut self) {
+        for y in 0..8 {
+            for x in 0..8 {
+                let square = self.game.get_board()[y][x];
+                if square != None {
+                    self.board[y][x] = Some((self.game.get_color_at(x, y).unwrap(), square.unwrap()));
+                }
+                else {
+                    self.board[y][x] = None;
+                }
+            }
+        }
+    }
 }
 
 // This is where we implement the functions that ggez requires to function
@@ -192,6 +182,25 @@ impl event::EventHandler<GameError> for AppState {
             }
         }
 
+        // Highlight possible moves
+        if self.possible_moves != None {
+            for tile in self.possible_moves.as_ref().unwrap() {
+                let center_x = chess_to_numerical(tile).0 as f32 * GRID_CELL_SIZE.0 as f32 + GRID_CELL_SIZE.0 as f32 / 2.0;
+                let center_y = chess_to_numerical(tile).1 as f32 * GRID_CELL_SIZE.0 as f32 + GRID_CELL_SIZE.0 as f32 / 2.0;
+                let circle = graphics::Mesh::new_circle(
+                    ctx,
+                    graphics::DrawMode::fill(),
+                    [center_x, center_y],
+                    GRID_CELL_SIZE.0 as f32 / 2.0,
+                    0.1,
+                    GREEN
+                )
+                .expect("Failed to create circle");
+                graphics::draw(ctx, &circle, graphics::DrawParam::default())
+                .expect("Failed to draw circle");
+            }
+        }
+
         // draw text with dark gray Coloring and center position
         graphics::draw(
             ctx,
@@ -227,12 +236,20 @@ impl event::EventHandler<GameError> for AppState {
         let cell_x = (x / f32::from(GRID_CELL_SIZE.0)).floor() as u8;
         let cell_y = (y / f32::from(GRID_CELL_SIZE.1)).floor() as u8;
         let string_coordinates = numerical_to_chess(cell_x, cell_y);
-        println!("cell: {}", numerical_to_chess(cell_x, cell_y));
+        
         if self.move_start == None {
-            self.possible_moves = self.game.get_possible_moves(&string_coordinates);
-            if self.possible_moves != None {
-                self.move_start = Some((cell_x, cell_y));
+            let possible_moves = self.game.get_possible_moves(&string_coordinates);
+            // If there are no moves, return
+            if possible_moves == None {
+                return
             }
+            let cell_color = self.board[cell_y as usize][cell_x as usize].unwrap().0;
+            // If attempring to move out of turn, return
+            if cell_color != self.game.get_player() {
+                return
+            }
+            self.move_start = Some((cell_x, cell_y));
+            self.possible_moves = possible_moves;
 
         }
         else {
@@ -240,8 +257,7 @@ impl event::EventHandler<GameError> for AppState {
             if self.possible_moves.as_ref().unwrap().contains(&string_coordinates) {
                 let start = self.move_start.as_ref().unwrap();
                 if self.game.make_move(&numerical_to_chess(start.0, start.1), &string_coordinates) != None {
-                    self.board[cell_y as usize][cell_x as usize] = self.board[start.1 as usize][start.0 as usize].clone();
-                    self.board[start.1 as usize][start.0 as usize] = None;
+                    self.board_from_game();
                 }
             }
             self.move_start = None;
@@ -257,6 +273,13 @@ fn numerical_to_chess (x : u8, y : u8) -> (String) {
     let chess_y = (8 - y).to_string();
     return chess_x + &chess_y;
 
+}
+
+fn chess_to_numerical (coordinates : &str) -> ((u8, u8)) {
+    let coordinates = coordinates.chars().collect::<Vec<char>>();
+    let x = (coordinates[0].clone() as u8) - ('A' as u8);
+    let y = 8 - ((coordinates[1].clone() as u8) - ('0' as u8));
+    return (x, y);
 }
 
 pub fn main() -> GameResult {
