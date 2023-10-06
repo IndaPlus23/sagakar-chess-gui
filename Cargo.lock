@@ -2116,7 +2116,7 @@ dependencies = [
 [[package]]
 name = "sagakar_chess_lib"
 version = "0.1.0"
-source = "git+https://github.com/IndaPlus23/sagakar-chess-lib.git#0c1045b8276ebb63e4e9a4be23c8ee482e96b530"
+source = "git+https://github.com/IndaPlus23/sagakar-chess-lib.git#6a162dc6c132d9d6818ea03bd343b10e03cd7884"
 
 [[package]]
 name = "same-file"

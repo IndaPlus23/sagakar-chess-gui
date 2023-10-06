@@ -9,18 +9,27 @@
 use sagakar_chess_lib::{Color, Game, Piece};
 
 use ggez::{conf, event, graphics, Context, ContextBuilder, GameError, GameResult};
-use std::{collections::HashMap, env, path};
+use std::{collections::HashMap, env, path, cell};
 
 /// A chess board is 8x8 tiles.
 const GRID_SIZE: i16 = 8;
 /// Sutible size of each tile.
 const GRID_CELL_SIZE: (i16, i16) = (90, 90);
+// Reasonable footer height
+const FOOTER_HEIGHT: i16 = 45;
 
 /// Size of the application window.
 const SCREEN_SIZE: (f32, f32) = (
     GRID_SIZE as f32 * GRID_CELL_SIZE.0 as f32,
-    GRID_SIZE as f32 * GRID_CELL_SIZE.1 as f32,
+    GRID_SIZE as f32 * GRID_CELL_SIZE.1 as f32 + FOOTER_HEIGHT as f32,
 );
+
+const PROMOTION_TYPES: [Piece; 4] = [
+    Piece::Queen,
+    Piece::Rook,
+    Piece::Bishop,
+    Piece::Knight,
+];
 
 // GUI Color representations
 const BLACK: graphics::Color =
@@ -28,7 +37,7 @@ const BLACK: graphics::Color =
 const WHITE: graphics::Color =
     graphics::Color::new(188.0 / 255.0, 140.0 / 255.0, 76.0 / 255.0, 1.0);
 const GREEN: graphics::Color = 
-    graphics::Color::new(85.0 / 255.0, 205.0 / 255.0 , 70.0 / 255.0, 0.5);
+    graphics::Color::new(85.0 / 255.0, 205.0 / 255.0 , 70.0 / 255.0, 0.65);
 
 /// GUI logic and event implementation structure.
 struct AppState {
@@ -38,7 +47,8 @@ struct AppState {
     // Imported game representation.
     game: Game,
     move_start: Option<(u8, u8)>,
-    possible_moves: Option<Vec<String>>
+    possible_moves: Option<Vec<String>>,
+    promotion_index: usize,
 }
 
 impl AppState {
@@ -50,6 +60,7 @@ impl AppState {
             board: [[None, None, None, None, None, None, None, None]; 8],
             move_start: None,
             possible_moves: None,
+            promotion_index: 0,
         };
         state.board_from_game();
         Ok(state)
@@ -106,23 +117,27 @@ impl event::EventHandler<GameError> for AppState {
         // clear interface with gray background Color
         graphics::clear(ctx, [0.5, 0.5, 0.5, 1.0].into());
 
-        // create text representation
+        // create text representation of current game state
         let state_text = graphics::Text::new(
             graphics::TextFragment::from(format!("Game is {:?}.", self.game.get_game_state()))
                 .scale(graphics::PxScale { x: 30.0, y: 30.0 }),
         );
 
-        // get size of text
-        let text_dimensions = state_text.dimensions(ctx);
+        // create text representation of current promotion type
+        let promotion_text = graphics::Text::new(
+            graphics::TextFragment::from(format!("Promotion type: {:?}", self.game.get_promotion_type()))
+            .scale(graphics::PxScale { x: 30.0, y: 30.0 })
+        );
+
         // create background rectangle with white coulouring
         let background_box = graphics::Mesh::new_rectangle(
             ctx,
             graphics::DrawMode::fill(),
             graphics::Rect::new(
-                (SCREEN_SIZE.0 - text_dimensions.w as f32) / 2f32 as f32 - 8.0,
-                (SCREEN_SIZE.0 - text_dimensions.h as f32) / 2f32 as f32,
-                text_dimensions.w as f32 + 16.0,
-                text_dimensions.h as f32,
+                0.0,
+                0.0,
+                SCREEN_SIZE.0 as f32,
+                SCREEN_SIZE.1 as f32,
             ),
             [1.0, 1.0, 1.0, 1.0].into(),
         )?;
@@ -208,8 +223,20 @@ impl event::EventHandler<GameError> for AppState {
             graphics::DrawParam::default()
                 .color([0.0, 0.0, 0.0, 1.0].into())
                 .dest(ggez::mint::Point2 {
-                    x: (SCREEN_SIZE.0 - text_dimensions.w as f32) / 2f32 as f32,
-                    y: (SCREEN_SIZE.0 - text_dimensions.h as f32) / 2f32 as f32,
+                    x: 0.0,
+                    y: SCREEN_SIZE.1 - state_text.height(ctx),
+                }),
+        )
+        .expect("Failed to draw text.");
+
+        graphics::draw(
+            ctx,
+            &promotion_text,
+            graphics::DrawParam::default()
+                .color([0.0, 0.0, 0.0, 1.0].into())
+                .dest(ggez::mint::Point2 {
+                    x: SCREEN_SIZE.0 - promotion_text.width(&ctx),
+                    y: SCREEN_SIZE.1 - state_text.height(ctx),
                 }),
         )
         .expect("Failed to draw text.");
@@ -236,7 +263,10 @@ impl event::EventHandler<GameError> for AppState {
         let cell_x = (x / f32::from(GRID_CELL_SIZE.0)).floor() as u8;
         let cell_y = (y / f32::from(GRID_CELL_SIZE.1)).floor() as u8;
         let string_coordinates = numerical_to_chess(cell_x, cell_y);
-        
+        // Return if out of vertical bounds
+        if cell_y as i16 > GRID_SIZE - 1 {
+            return
+        }
         if self.move_start == None {
             let possible_moves = self.game.get_possible_moves(&string_coordinates);
             // If there are no moves, return
@@ -244,7 +274,7 @@ impl event::EventHandler<GameError> for AppState {
                 return
             }
             let cell_color = self.board[cell_y as usize][cell_x as usize].unwrap().0;
-            // If attempring to move out of turn, return
+            // If attempting to move out of turn, return
             if cell_color != self.game.get_player() {
                 return
             }
@@ -262,8 +292,20 @@ impl event::EventHandler<GameError> for AppState {
             }
             self.move_start = None;
             self.possible_moves = None;
-            println!("{:?}", self.board)
         }
+    }
+
+    // Update game on keyboard press
+    fn key_up_event(&mut self, _ctx: &mut Context, _keycode: event::KeyCode, _keymods: event::KeyMods) {
+        // Only proceed for key P
+        if _keycode != event::KeyCode::P {
+            return
+        }
+        self.promotion_index += 1;
+        if self.promotion_index > 3 {
+            self.promotion_index = 0;
+        }
+        self.game.set_promotion(PROMOTION_TYPES[self.promotion_index]);
     }
 }
 
